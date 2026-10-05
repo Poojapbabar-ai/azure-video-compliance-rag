@@ -12,12 +12,10 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain.messages import SystemMessage, HumanMessage  
 import pydantic
 
-
-
 #import state schema
 
-from backend.src.graph.state import VideoAuditState, ComplianceIssue
-from backend.src.services.video_indexer import VideoIndexerService
+from graph.state import VideoAuditState, ComplianceIssue
+from services.video_indexer import VideoIndexerService
 
 
 logger = logging.getLogger("brand-gurardian")

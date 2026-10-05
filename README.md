@@ -1,6 +1,6 @@
 # Compliance QA Pipeline
 
-A Python project scaffold for a compliance question-answering pipeline. The repository currently contains the initial package and backend module structure; the API, graph workflow, and service modules are placeholders.
+A Python scaffold for a video compliance audit and question-answering pipeline. The graph module describes the intended audit workflow; the package entry point and backend modules are still under development.
 
 ## Requirements
 
@@ -18,19 +18,24 @@ uv pip install -r Requirements.txt
 uv pip install -e .
 ```
 
-The dependency list is maintained in `Requirements.txt`. Use a local `.env` file for secrets and environment-specific settings; it is excluded from Git. A checked-in `.env.example` may be used to document required variable names without secret values.
+The project metadata is in `pyproject.toml`, and the package is built from `backend/src`. The additional application dependencies are listed in `Requirements.txt`.
+
+Keep local credentials and environment-specific values in `backend/.env`. Environment files and virtual environments are excluded from Git. Use `.env.example` for documenting variable names without including secret values.
+
+## Current Status
+
+The installed `complianceqapipeline` command currently runs a placeholder entry point. The API, graph workflow, and integration services are not yet ready to run as a complete pipeline.
 
 ## Project Layout
 
 ```text
-backend/src/
-	api/                   API and telemetry modules
-	complianceqapipeline/  Python package and command-line entry point
-	graph/                 Pipeline graph modules
-	services/              Integration services
-data/                    Local data workspace
-scripts/                 Utility scripts
-test/                    Tests
+backend/
+	data/                  Local data workspace
+	scripts/               Utility scripts
+	src/
+		api/                 API and telemetry modules
+		complianceqapipeline/ Python package and command-line entry point
+		graph/               Audit workflow and state
+		services/            Integration services
+	test/                  Tests
 ```
-
-The package is built from `backend/src`, as configured in `pyproject.toml`.

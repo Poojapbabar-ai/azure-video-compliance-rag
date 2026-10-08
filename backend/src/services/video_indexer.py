@@ -140,12 +140,26 @@ def wait_for_processing(self,video_id):
         logger.info(f"Status{state} waiting 30 seconds")
         time.sleep(30)
     
-def extract_data(self, vi_json):
-    """Parses the JSON into our state format."""
-    transcript_lines = []
-        insight.get("text")
-        for v in vi_json.get("videos", [])
-        for insight in v.get("insights", {}).get("transcript", [])
-    ]
+def extract_data(self,vi_json):
+    'parse the JSON into our state format'
+    transcript_lines =[]
+    for v in vi_json.get("videos",[]):
+        for insight in v.get("insights",{}).get("transcript",[]):
+            transcript_lines.append(insight.get("text"))
 
-https://youtu.be/I3CWFDgqvq8 (3:53)
+    ocr_lines = []
+    for v in vi_json.get("videos",[]):
+        for insight in v.get("insights",{}).get("ocr",[]):
+            ocr_lines.append(insight.get("text"))
+
+    return {
+        "transcript" : " ".join(transcript_lines),
+        "ocr_text" : ocr_lines,
+        "video_metadata":{
+            "duration" :vi_json.get("summarized Insights",{}).get("duration"),
+            "platform":"youtube"
+        }
+    }
+
+
+        

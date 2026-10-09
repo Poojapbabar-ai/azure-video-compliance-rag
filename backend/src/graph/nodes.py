@@ -1,174 +1,160 @@
 import json
-import os
 import logging
+import os
 import re
-from typing import AnyList , Dict ,Any
+from typing import Any, Dict
 
-from annotated_types import doc
-from graph import state
-from langchain_openai import AzureChatOpenAI, AzureOpenAIEmbeddings
+from langchain.messages import HumanMessage, SystemMessage
 from langchain_community.vectorstores import AzureSearch
-from langchain_core.prompts import ChatPromptTemplate
-from langchain.messages import SystemMessage, HumanMessage  
-import pydantic
+from langchain_openai import AzureChatOpenAI, AzureOpenAIEmbeddings
 
-#import state schema
-
-from graph.state import VideoAuditState, ComplianceIssue
-from services.video_indexer import VideoIndexerService
-
+from graph.state import VideoAuditState
+from services.video_indexer import VideoIndexService
 
 logger = logging.getLogger("brand-gurardian")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
 
-#NODE 1: Indexer 
+# NODE 1: Indexer
 
-def index_video_node(state:VideoAuditState)  ->Dict[str,Any]:
+def index_video_node(state: VideoAuditState) -> Dict[str, Any]:
     '''
-    Downloads the youtube video from the url 
-    Uplaods to the Azure Video Indexer
-    extract the insights 
+    Download the video, upload it to Azure Video Indexer, and extract insights.
     '''
     video_url = state.get("video_url")
-    video_id_input = state.get("video_id","vid_demo")
+    video_id_input = state.get("video_id", "vid_demo")
 
     logger.info(f"------------[Note:Indexer] Processing :{video_url}  ---------------")
 
     local_filename = "temp_audit_video.mp4"
 
     try:
-        vi_service = VideoIndexerService()
+        vi_service = VideoIndexService()
 
-        #download the video from youtube
+        # Download the video from YouTube
         if "youtube.com" in video_url or "youtu.be" in video_url:
             local_path = vi_service.download_youtube_video(video_url, output_path=local_filename)
         else:
-            raise Exception("Please provide a valid youtube video url for the test")
+            raise ValueError("Please provide a valid YouTube video URL for the test")
 
-        azure_video_id = vi_service.upload_video_to_azure(local_path, video_id_input)   
+        azure_video_id = vi_service.upload_video_to_azure(local_path, video_id_input)
         logger.info(f"Video uploaded to Azure Video Indexer with ID: {azure_video_id}")
-
-        #clean up
 
         if os.path.exists(local_path):
             os.remove(local_path)
             logger.info(f"Temporary file {local_path} removed.")
 
-        #wait for processing 
         raw_insights = vi_service.wait_for_processing(azure_video_id)
-
-        #clean data 
         clean_data = vi_service.extract_data(raw_insights)
         logger.info(f"[Node:Indexer] Video Insights Extracted Successfully for video_id: {azure_video_id}")
-
 
         return clean_data
 
     except Exception as e:
-        logger.error(f"Video INdexer failed :{e}")
+        logger.error(f"Video Indexer failed: {e}")
         return {
-            "error": [str(e)],
+            "errors": [str(e)],
             "final_status": "FAIL",
-            "transcript":" ",
+            "transcript": "",
             "ocr_text": [],
-
         }
 
-#NODE 2 : Compliance Auditor 
-def audio_content_node(state:VideoAuditState) -> Dict[str,Any]:
+
+# NODE 2: Compliance Auditor
+
+def audio_content_node(state: VideoAuditState) -> Dict[str, Any]:
     '''
-    Performs Retrieval Augmented Generation to audit the content - brand video
-    
+    Perform retrieval-augmented generation to audit the content.
     '''
-    logger.info("-----[NODE :Auditor]  querying Knowledge base & LLM")
-    transcript = state.get("transcript","")
-    if not transcript:
-        logger.warning("No transcript available .Skipping audit ...")
+    logger.info("-----[NODE:Auditor] querying Knowledge base & LLM")
+    transcript = state.get("transcript", "")
+    if not transcript or not transcript.strip():
+        logger.warning("No transcript available. Skipping audit...")
+        indexer_errors = state.get("errors", [])
+        reason = f" Video processing error: {'; '.join(indexer_errors)}" if indexer_errors else ""
         return {
-            "final_status":"FAIL",
-             "final_report" : "Audit Skipped because video processing failed (No Trascript.)"
-
+            "final_status": "FAIL",
+            "final_report": f"Audit skipped because video processing failed (no transcript).{reason}",
         }
 
-    #initialize clients 
+    # Initialize clients
     llm = AzureChatOpenAI(
-        azure_deployment = os.getenv("AZURE_OPENAI_CHAT_DEPLOYMENT"),
-        openai_api_version = os.getenv("AZURE_OPENAI_API_VERSION"),
-        temperature=0.0
+        azure_deployment=os.getenv("AZURE_OPENAI_CHAT_DEPLOYMENT"),
+        openai_api_version=os.getenv("AZURE_OPENAI_API_VERSION"),
+        temperature=0.0,
     )
 
     embeddings = AzureOpenAIEmbeddings(
-        azure_deployment = os.getenv("TEXt_EMBEDDING_DEPLOYMENT"),
-        openai_api_version = os.getenv("AZURE_OPENAI_API_VERSION"),
+        azure_deployment=os.getenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT"),
+        azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
+        api_key=os.getenv("AZURE_OPENAI_API_KEY"),
+        openai_api_version=os.getenv("AZURE_OPENAI_API_VERSION"),
     )
+
     vector_store = AzureSearch(
-        azure_search_endpoint = os.getenv("AZURE_SEARCH_ENDPOINT"),
-        azure_search_key = os.getenv("AZURE_SEARCH_API_KEY"),
-        index_name = os.getenv("AZURE_SEARCH_INDEX_NAME"),
-        embedding_function = embeddings.embed_query
+        azure_search_endpoint=os.getenv("AZURE_SEARCH_ENDPOINT"),
+        azure_search_key=os.getenv("AZURE_SEARCH_API_KEY"),
+        index_name=os.getenv("AZURE_SEARCH_INDEX_NAME"),
+        embedding_function=embeddings.embed_query,
     )
 
-    #RAG 
-    ocr_text = state.get("ocr_text",[])
+    # RAG
+    ocr_text = state.get("ocr_text", [])
     query_text = f"{transcript} {' '.join(ocr_text)}"
-    docs  = vector_store.similarity_search(query_text, k=5),
-    retrieved_rules = "\n\n".join([doc.page_content for doc in docs])
-
+    docs = vector_store.similarity_search(query_text, k=5)
+    retrieved_rules = "\n\n".join([doc.page_content for doc in docs]) if docs else "No relevant compliance rules found."
 
     system_prompt = f"""
-            You are a senior brand complienece auditor. 
-            OFFICIAL REGULATORY RULES: 
+            You are a senior brand compliance auditor.
+            OFFICIAL REGULATORY RULES:
             {retrieved_rules}
             INSTRUCTIONS:
-            1. Analyze the Transcript and OCR text below 
-            2. Identify ANY violations of the rules.
+            1. Analyze the Transcript and OCR text below.
+            2. Identify any violations of the rules.
             3. Return strictly JSON in the following format:
             {{
                 "compliance_results": [
-                {{
-                "category":"Claim Validation",
-                "severity":"CRITICAL",
-                "description":"Explanation of the violation .... "
-                }}
-            
-            ],
-            "status":"FAIL",
-            "final_report":"Summary findings...."
+                    {{
+                        "category": "Claim Validation",
+                        "severity": "CRITICAL",
+                        "description": "Explanation of the violation...."
+                    }}
+                ],
+                "status": "FAIL",
+                "final_report": "Summary findings...."
             }}
 
-            If no violutions are found ,set "status" to "PASS" and "compliance_results" to  [].
+            If no violations are found, set "status" to "PASS" and "compliance_results" to [].
             """
 
     user_message = f"""
-                  VIDEO_METADATA :{state.get('video_metadata',{})}
-                  TRANSCRIPT : {transcript}
-                  ONSCREEN TEXT (OCR) : {ocr_text}
+                  VIDEO_METADATA: {state.get('video_metadata', {})}
+                  TRANSCRIPT: {transcript}
+                  ONSCREEN TEXT (OCR): {ocr_text}
                   """
+
     try:
-        response = llm.invoke([ 
+        response = llm.invoke([
             SystemMessage(content=system_prompt),
-            HumanMessage(content=user_message)
-
-
+            HumanMessage(content=user_message),
         ])
         content = response.content
+
         if "```" in content:
-            content = re.search(r"```(?:json)?(.?)```", content, re.DOTALL).group(1)
+            match = re.search(r"```(?:json)?\s*(.*?)\s*```", content, re.DOTALL | re.IGNORECASE)
+            if match:
+                content = match.group(1)
+
         audit_data = json.loads(content.strip())
         return {
             "compliance_issues": audit_data.get("compliance_results", []),
             "final_status": audit_data.get("status", "FAIL"),
-            "final_report": audit_data.get("final_report", "NO report generated")
+            "final_report": audit_data.get("final_report", "NO report generated"),
         }
     except Exception as e:
         logger.error(f"System Error in Auditor Node: {str(e)}")
-
-        #logging the raw response   
         logger.error(f"Raw LLM Response: {response.content if 'response' in locals() else 'No response received'}")
         return {
-            "error": [str(e)],
-            "final_status": "FAIL"
+            "errors": [str(e)],
+            "final_status": "FAIL",
         }
-
-    

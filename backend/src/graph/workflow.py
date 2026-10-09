@@ -8,7 +8,7 @@ START -> index_video_node -> audio_content_node -> END
 
 '''
 from langgraph.graph import StateGraph,END
-from graph.nodes import index_video_node,audit_content_node
+from graph.nodes import index_video_node, audio_content_node
 from graph.state import VideoAuditState
 
 
@@ -24,7 +24,7 @@ def create_graph():
 
     #add the node
     workflow.add_node("indexer",index_video_node)
-    workflow.add_node("auditor",audit_content_node)
+    workflow.add_node("auditor",audio_content_node)
 
 
     #define the entry point 

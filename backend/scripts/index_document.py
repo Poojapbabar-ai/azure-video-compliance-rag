@@ -10,7 +10,7 @@ from langchain_community.document_loaders import PyPDFLoader, UnstructuredFileLo
 from langchain_text_splitters import RecursiveCharacterTextSplitter  
 
 #azure components
-from langchain_openai import AzureChatOpenAI, AzureOpenAIEmbeddings
+from langchain_openai import OpenAIEmbeddings
 from langchain_community.vectorstores import AzureSearch
 
 #set up logging
@@ -58,13 +58,11 @@ def index_docs():
     #initialize the embedding model : turns text into vectors
     try:
         logger.info("Initialize the AZURE OPENAI Embeddings...")
-        embeddings = AzureOpenAIEmbeddings(
-            azure_deployment=os.getenv('AZURE_OPENAI_EMBEDDING_DEPLOYMENT','text-embedding-3-small'),
-            azure_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT"),
-            api_key = os.getenv("AZURE_OPENAI_API_KEY"),
-            openai_api_version = os.getenv("AZURE_OPENAI_API_VERSION","2025-04-14")
-
-
+        openai_base_url = f"{os.getenv('AZURE_OPENAI_ENDPOINT', '').rstrip('/')}/openai/v1"
+        embeddings = OpenAIEmbeddings(
+            model=os.getenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT", "text-embedding-3-small-2"),
+            base_url=openai_base_url,
+            api_key=os.getenv("AZURE_OPENAI_API_KEY"),
         )
         logger.info("Embedding model Initialized")
     except Exception as e:
@@ -75,12 +73,12 @@ def index_docs():
     #initialize the Azure Search: 
     try:
         logger.info("Initialize the AZURE Embeddings...")
-        embeddings = AzureOpenAIEmbeddings(
-            #azure_set=os.getenv('AZURE_OPENAI_EMBEDDING_DEPLOYMENT','text-embedding-3-small'),
-            azure_search_endpoint = os.getenv("AZURE_SEARCH_ENDPOINT"),
-            azure_search_api_key  = os.getenv("AZURE_SEARCH_API_KEY"),
-            index_name = index_name,
-            embedding_function = embeddings.embed_query,)
+        vector_store = AzureSearch(
+            azure_search_endpoint=os.getenv("AZURE_SEARCH_ENDPOINT"),
+            azure_search_key=os.getenv("AZURE_SEARCH_API_KEY"),
+            index_name=index_name,
+            embedding_function=embeddings.embed_query,
+        )
 
         
         logger.info(f"Vector search Initialized for index {index_name}")
@@ -127,7 +125,7 @@ def index_docs():
             logger.info(f"Uplaoding {len(all_splits)} chunks to Azure AI Search Index '{index_name}' ")
             try:
                 #azure search accepts batches automatically  via this method 
-                vector_store.add_document(documents = all_splits)
+                vector_store.add_documents(documents=all_splits)
                 logger.info("="*60)
                 logger.info("Indexing is completed knowledge Base is Ready ")
                 logger.info(f"Total chunks indexed :{len(all_splits)}")

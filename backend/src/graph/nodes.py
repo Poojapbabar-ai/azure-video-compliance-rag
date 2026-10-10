@@ -6,7 +6,7 @@ from typing import Any, Dict
 
 from langchain.messages import HumanMessage, SystemMessage
 from langchain_community.vectorstores import AzureSearch
-from langchain_openai import AzureChatOpenAI, AzureOpenAIEmbeddings
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 
 from graph.state import VideoAuditState
 from services.video_indexer import VideoIndexService
@@ -78,17 +78,18 @@ def audio_content_node(state: VideoAuditState) -> Dict[str, Any]:
         }
 
     # Initialize clients
-    llm = AzureChatOpenAI(
-        azure_deployment=os.getenv("AZURE_OPENAI_CHAT_DEPLOYMENT"),
-        openai_api_version=os.getenv("AZURE_OPENAI_API_VERSION"),
+    openai_base_url = f"{os.getenv('AZURE_OPENAI_ENDPOINT', '').rstrip('/')}/openai/v1"
+    llm = ChatOpenAI(
+        model=os.getenv("AZURE_OPENAI_CHAT_DEPLOYMENT"),
+        base_url=openai_base_url,
+        api_key=os.getenv("AZURE_OPENAI_API_KEY"),
         temperature=0.0,
     )
 
-    embeddings = AzureOpenAIEmbeddings(
-        azure_deployment=os.getenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT"),
-        azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
+    embeddings = OpenAIEmbeddings(
+        model=os.getenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT"),
+        base_url=openai_base_url,
         api_key=os.getenv("AZURE_OPENAI_API_KEY"),
-        openai_api_version=os.getenv("AZURE_OPENAI_API_VERSION"),
     )
 
     vector_store = AzureSearch(
